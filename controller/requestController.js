@@ -365,7 +365,7 @@ const handleDownloadRequestByKode = async (req, res) => {
     }
     const buf = doc.getZip().generate({ type: "nodebuffer" });
     const fileName = `Request_${request.kode_request}.docx`;
-    const filePath = path.resolve(__dirname, "../src/requests", fileName);
+    const filePath = path.resolve("/tmp", fileName);
     fs.writeFileSync(filePath, buf);
     return res.download(filePath, fileName, (err) => {
       if (err) {
