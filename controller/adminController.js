@@ -1,3 +1,4 @@
+const { where, Op } = require("sequelize");
 const { Admin, Barang, TransaksiPembelian } = require("../models");
 
 const handleGetUser = async (req, res) => {
@@ -169,6 +170,46 @@ const handleUpdateBarang = async (req, res) => {
   }
 };
 
+const handleGetAllBarang = async (req, res) => {
+  try {
+    const barang = await Barang.findAll();
+    return res.status(200).json({
+      message: "Successfully get all barang",
+      data: barang,
+    });
+  } catch (error) {
+    return res.send([
+      {
+        code: "E-009",
+        message: error.message,
+      },
+    ]);
+  }
+};
+
+const handleGetAllBarangForRequest = async (req, res) => {
+  try {
+    const barang = await Barang.findAll({
+      where: {
+        stok: {
+          [Op.gt]: 0,
+        },
+      },
+    });
+    return res.status(200).json({
+      message: "Successfully get all barang",
+      data: barang,
+    });
+  } catch (error) {
+    return res.send([
+      {
+        code: "E-009",
+        message: error.message,
+      },
+    ]);
+  }
+};
+
 module.exports = {
   handleGetUser,
   handleAddTransaksi,
@@ -176,4 +217,6 @@ module.exports = {
   handleCreateBarang,
   handleGetAllTransaksi,
   handleUpdateBarang,
+  handleGetAllBarang,
+  handleGetAllBarangForRequest,
 };

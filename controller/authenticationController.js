@@ -43,7 +43,12 @@ const checkRole = (allowedRoles = []) => {
 
       if (!allowedRoles.includes(user.role)) {
         return res.status(403).json({
-          errors: [{ code: "E-006", message: "Forbidden: insufficient role" }],
+          errors: [
+            {
+              code: "E-006",
+              message: "Forbidden: Role not authorized to perform this action",
+            },
+          ],
         });
       }
 

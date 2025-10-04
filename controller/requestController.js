@@ -1,4 +1,9 @@
 const { sequelize, Request, Request_Detail, Barang } = require("../models");
+const path = require("path");
+const fs = require("fs");
+const DocxTemplater = require("docxtemplater");
+const PizZip = require("pizzip");
+const dayjs = require("dayjs");
 
 const handleAddRequest = async (req, res) => {
   const t = await sequelize.transaction();
@@ -28,6 +33,38 @@ const handleAddRequest = async (req, res) => {
         )
       )
     );
+
+    // Ambil data request yang sudah dibuat beserta detailnya
+    const createdRequest = await Request.findOne({
+      where: { id: newRequest.id },
+      include: [{ model: Request_Detail }],
+      transaction: t,
+    });
+
+    // Update stok barang
+    for (const detail of createdRequest.Request_Details) {
+      const barangItem = await Barang.findByPk(detail.barcode_barang, {
+        transaction: t,
+      });
+      if (!barangItem) {
+        await t.rollback();
+        return res.status(404).json({
+          code: "E-009",
+          message: `Barang dengan barcode ${detail.barcode_barang} tidak ditemukan`,
+        });
+      }
+
+      if (barangItem.stok < detail.jumlah) {
+        await t.rollback();
+        return res.status(400).json({
+          code: "E-010",
+          message: `Jumlah yang diajukan melebihi stok barang yang tersedia`,
+        });
+      }
+
+      barangItem.stok -= detail.jumlah;
+      await barangItem.save({ transaction: t });
+    }
 
     // Commit transaksi
     await t.commit();
@@ -142,12 +179,15 @@ const handleApproved = async (req, res) => {
 };
 
 const handleReject = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { kode_request } = req.params;
     const formRequest = await Request.findOne({
       where: {
         kode_request,
       },
+      include: [{ model: Request_Detail }],
+      transaction: t,
     });
     if (!formRequest) {
       return res.status(404).send([
@@ -157,16 +197,31 @@ const handleReject = async (req, res) => {
         },
       ]);
     }
-    await formRequest.update({
-      tanggal_disetujui: new Date(),
-      status_request: "Ditolak",
-    });
+    await formRequest.update(
+      {
+        tanggal_ditolak: new Date(),
+        status_request: "Ditolak",
+      },
+      { transaction: t }
+    );
+
+    // Kembalikan stok barang
+    for (const detail of formRequest.Request_Details) {
+      const barang = await Barang.findByPk(detail.barcode_barang, {
+        transaction: t,
+      });
+      if (!barang) continue;
+      barang.stok += detail.jumlah;
+      await barang.save({ transaction: t });
+    }
+    await t.commit();
 
     return res.status(200).json({
       message: "Request has been rejected",
       data: formRequest,
     });
   } catch (error) {
+    await t.rollback();
     return res.status(500).send({
       code: "E-007",
       message: error.message,
@@ -194,23 +249,23 @@ const handleFinish = async (req, res) => {
         .json({ message: "Request hanya bisa diselesaikan setelah disetujui" });
     }
 
-    // update stok barang
-    for (const detail of request.Request_Details) {
-      const barang = await Barang.findByPk(detail.barcode_barang, {
-        transaction: t,
-      });
-      if (!barang) continue;
+    // // update stok barang
+    // for (const detail of request.Request_Details) {
+    //   const barang = await Barang.findByPk(detail.barcode_barang, {
+    //     transaction: t,
+    //   });
+    //   if (!barang) continue;
 
-      if (barang.stok < detail.jumlah) {
-        await t.rollback();
-        return res.status(400).json({
-          message: `Stok barang ${barang.nama_barang} tidak mencukupi`,
-        });
-      }
+    //   if (barang.stok < detail.jumlah) {
+    //     await t.rollback();
+    //     return res.status(400).json({
+    //       message: `Stok barang ${barang.nama_barang} tidak mencukupi`,
+    //     });
+    //   }
 
-      barang.stok -= detail.jumlah;
-      await barang.save({ transaction: t });
-    }
+    //   barang.stok -= detail.jumlah;
+    //   await barang.save({ transaction: t });
+    // }
 
     // update status request
     request.status_request = "Selesai";
@@ -228,6 +283,104 @@ const handleFinish = async (req, res) => {
   }
 };
 
+const handleDownloadRequestByKode = async (req, res) => {
+  try {
+    const { kode_request } = req.params;
+    const request = await Request.findOne({
+      where: {
+        kode_request,
+        status_request: "Selesai",
+      },
+      include: [
+        {
+          model: Request_Detail,
+          include: [
+            {
+              model: Barang,
+            },
+          ],
+        },
+      ],
+      order: [["tanggal_request", "DESC"]],
+    });
+    if (!request) {
+      return res.status(404).send([
+        {
+          code: "E-006",
+          message: "Request tidak ditemukan",
+        },
+      ]);
+    }
+    // Load the docx file as binary content
+    const content = fs.readFileSync(
+      path.resolve(__dirname, "../src/template/FORM.docx"),
+      "binary"
+    );
+    const zip = new PizZip(content);
+    const doc = new DocxTemplater(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+    });
+    // Prepare data for the template
+    // Buatkan index agar di form docx nya ada nomor urut
+    const barangList = request.Request_Details.map((detail) => ({
+      index: request.Request_Details.indexOf(detail) + 1,
+      nama_barang: detail.Barang.nama_barang,
+      jumlah: detail.jumlah,
+    }));
+    // Set the template variables
+    doc.setData({
+      kode_request: request.kode_request,
+      nama_pemohon: request.nama_pemohon,
+      tanggal_request: dayjs(request.tanggal_request).format(
+        "DD MMMM YYYY HH:mm:ss"
+      ),
+      tanggal_disetujui: dayjs(request.tanggal_disetujui).format(
+        "DD MMMM YYYY HH:mm:ss"
+      ),
+      tanggal_selesai: dayjs(request.tanggal_selesai).format(
+        "DD MMMM YYYY HH:mm:ss"
+      ),
+      periode: dayjs(request.tanggal_request).format("MMMM YYYY"),
+      tanggal_download: dayjs(new Date()).format("DD MMMM YYYY"),
+      status_request: request.status_request,
+      barang_list: barangList,
+    });
+    try {
+      // Render the document (replace all occurrences of {first_name} by John, {last_name} by Doe, ...)
+      doc.render();
+    } catch (error) {
+      const e = {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        properties: error.properties,
+      };
+      console.log(JSON.stringify({ error: e }));
+      return res.status(500).send({
+        code: "E-008",
+        message: "Error rendering document",
+        details: e,
+      });
+    }
+    const buf = doc.getZip().generate({ type: "nodebuffer" });
+    const fileName = `Request_${request.kode_request}.docx`;
+    const filePath = path.resolve(__dirname, "../src/requests", fileName);
+    fs.writeFileSync(filePath, buf);
+    return res.download(filePath, fileName, (err) => {
+      if (err) {
+        console.log("Error downloading file:", err);
+      }
+      // Optional: delete the file after download
+    });
+  } catch (error) {
+    return res.status(500).send({
+      code: "E-007",
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   handleAddRequest,
   handleGetAllRequest,
@@ -235,4 +388,5 @@ module.exports = {
   handleApproved,
   handleReject,
   handleFinish,
+  handleDownloadRequestByKode,
 };

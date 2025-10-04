@@ -18,6 +18,13 @@ router.get(
 );
 
 // Barang
+// Mengambil data semua barang
+router.get("/admin/barang", adminController.handleGetAllBarang);
+// Mengambil data semua barang yang memiliki stok > 0 (untuk keperluan request)
+router.get(
+  "/admin/barang/for-request",
+  adminController.handleGetAllBarangForRequest
+);
 // Tambah Transaksi pada Barang + Update Stok Barang
 router.post(
   "/admin/barang/transaksi/add/:barcode",
@@ -56,6 +63,11 @@ router.post("/request", requestController.handleAddRequest);
 router.get("/request", requestController.handleGetAllRequest);
 // Get Request by Kode
 router.get("/request/:kode_request", requestController.handleGetRequestByKode);
+// Download Request by Kode
+router.get(
+  "/request/:kode_request/download",
+  requestController.handleDownloadRequestByKode
+);
 // Approved Request
 router.patch(
   "/request/:kode_request/approve",
