@@ -18,6 +18,7 @@ module.exports = (sequelize, DataTypes) => {
   Request.init(
     {
       kode_request: DataTypes.STRING,
+      nama_bagian: DataTypes.STRING,
       nama_pemohon: DataTypes.STRING,
       tanggal_request: DataTypes.DATE,
       tanggal_disetujui: DataTypes.DATE,

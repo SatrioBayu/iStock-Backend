@@ -1,5 +1,13 @@
 const { where, Op } = require("sequelize");
-const { Admin, Barang, TransaksiPembelian } = require("../models");
+const {
+  Admin,
+  Barang,
+  TransaksiPembelian,
+  Request_Detail,
+  sequelize,
+} = require("../models");
+const ExcelJS = require("exceljs");
+const dayjs = require("dayjs");
 
 const handleGetUser = async (req, res) => {
   try {
@@ -9,7 +17,7 @@ const handleGetUser = async (req, res) => {
       data: user,
     });
   } catch (error) {
-    return res.send([
+    return res.status(500).send([
       {
         code: "E-005",
         message: error.message,
@@ -30,10 +38,30 @@ const handleAddTransaksi = async (req, res) => {
         },
       ]);
     }
-    const { jumlah_dibeli, harga_satuan, harga_total, nama_toko } = req.body;
+    const {
+      jumlah_dibeli,
+      harga_satuan,
+      harga_total,
+      nama_toko,
+      tanggal_transaksi,
+    } = req.body;
+
+    if (
+      jumlah_dibeli === null ||
+      harga_satuan === null ||
+      harga_total === null ||
+      nama_toko === "" ||
+      tanggal_transaksi === ""
+    ) {
+      return res.status(400).send({
+        code: "E-010",
+        message: "Tidak boleh ada field  yang kosong",
+      });
+    }
+
     const newTransaksi = await TransaksiPembelian.create({
       barcode_barang: barcode,
-      tanggal_transaksi: new Date(),
+      tanggal_transaksi: new Date(tanggal_transaksi),
       jumlah_dibeli,
       harga_satuan,
       harga_total,
@@ -64,7 +92,47 @@ const handleAddTransaksi = async (req, res) => {
       },
     ]);
   } catch (error) {
-    return res.send([
+    return res.status(500).send([
+      {
+        code: "E-007",
+        message: error.message,
+      },
+    ]);
+  }
+};
+
+const handleDeleteTransaksiById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const transaksi = await TransaksiPembelian.findByPk(id);
+    if (!transaksi) {
+      return res.status(404).send([
+        {
+          code: "E-007",
+          message: "Transaksi not found",
+        },
+      ]);
+    }
+    // Kurangi stok barang sesuai jumlah_dibeli pada transaksi yang dihapus
+    const barang = await Barang.findByPk(transaksi.barcode_barang);
+    if (barang) {
+      const newStock = barang.stok - transaksi.jumlah_dibeli;
+      await barang.update({ stok: newStock });
+    }
+    await transaksi.destroy();
+    const updatedBarang = await Barang.findByPk(transaksi.barcode_barang, {
+      include: [
+        {
+          model: TransaksiPembelian,
+        },
+      ],
+    });
+    return res.status(200).json({
+      message: "Successfully delete transaksi",
+      data: updatedBarang,
+    });
+  } catch (error) {
+    return res.status(500).send([
       {
         code: "E-007",
         message: error.message,
@@ -87,7 +155,7 @@ const handleGetAllTransaksiByBarcode = async (req, res) => {
       data: transaksi,
     });
   } catch (error) {
-    return res.send([
+    return res.status(500).send([
       {
         code: "E-007",
         message: error.message,
@@ -99,6 +167,20 @@ const handleGetAllTransaksiByBarcode = async (req, res) => {
 const handleCreateBarang = async (req, res) => {
   try {
     const { barcode, nama_barang, stok, satuan } = req.body;
+
+    // Cek barcode sudah ada atau belum
+    const barangCheck = await Barang.findByPk(barcode);
+    if (barangCheck) {
+      return res.status(400).json({
+        errors: [
+          {
+            code: "E-008",
+            message: `Barcode ${barcode} sudah digunakan di barang ${barangCheck.nama_barang}`,
+          },
+        ],
+      });
+    }
+
     const barang = await Barang.create({
       barcode,
       nama_barang,
@@ -111,7 +193,7 @@ const handleCreateBarang = async (req, res) => {
       data: barang,
     });
   } catch (error) {
-    return res.send({
+    return res.status(500).send({
       code: "E-008",
       message: error.message,
     });
@@ -120,14 +202,62 @@ const handleCreateBarang = async (req, res) => {
 
 const handleGetAllTransaksi = async (req, res) => {
   try {
-    const transaksi = await TransaksiPembelian.findAll();
-
-    return res.status(201).json({
-      message: "Transaksi successfully fetched",
-      data: transaksi,
+    // Get all transaksi
+    const transaksi = await TransaksiPembelian.findAll({
+      include: [
+        {
+          model: Barang,
+          attributes: ["barcode", "nama_barang"],
+        },
+      ],
     });
+
+    // Buat workbook dan worksheet
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Transaksi Pembelian");
+
+    // Definisikan kolom
+    worksheet.columns = [
+      { header: "Tanggal dan Jam", key: "tanggal_transaksi", width: 20 },
+      { header: "Barcode", key: "barcode", width: 20 },
+      { header: "Nama Barang", key: "nama_barang", width: 20 },
+      { header: "Jumlah Masuk", key: "jumlah_dibeli", width: 20 },
+      { header: "Harga Satuan", key: "harga_satuan", width: 20 },
+      { header: "Harga Total", key: "harga_total", width: 20 },
+      { header: "Nama Toko", key: "nama_toko", width: 20 },
+    ];
+
+    transaksi.forEach((item) => {
+      worksheet.addRow({
+        tanggal_transaksi: dayjs(item.tanggal_transaksi).format(
+          "DD/MM/YYYY HH:mm:ss"
+        ),
+        barcode: item.barcode_barang,
+        nama_barang: item.Barang.nama_barang,
+        jumlah_dibeli: item.jumlah_dibeli,
+        harga_satuan: item.harga_satuan,
+        harga_total: item.harga_total,
+        nama_toko: item.nama_toko,
+      });
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=data-barang.xlsx"
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+    // return res.status(201).json({
+    //   message: "Transaksi successfully fetched",
+    //   data: transaksi,
+    // });
   } catch (error) {
-    return res.send([
+    return res.status(500).send([
       {
         code: "E-007",
         message: error.message,
@@ -137,36 +267,98 @@ const handleGetAllTransaksi = async (req, res) => {
 };
 
 const handleUpdateBarang = async (req, res) => {
+  // Mulai transaction
+  const t = await sequelize.transaction();
+
   try {
-    const { barcode } = req.params;
-    const { nama_barang, stok, satuan } = req.body;
-    const barang = await Barang.findByPk(barcode);
+    const { oldBarcode } = req.params;
+    const { barcode, nama_barang, stok, satuan } = req.body;
+
+    // Cek semua body tidak boleh empty string
+    if (
+      barcode === "" ||
+      nama_barang === "" ||
+      stok === null ||
+      satuan === ""
+    ) {
+      await t.rollback();
+      return res.status(400).send({
+        code: "E-400",
+        message: "Field tidak boleh kosong",
+      });
+    }
+
+    // Cek kalau stok minus
+    if (stok < 0) {
+      await t.rollback();
+      return res.status(400).send({
+        code: "E-200",
+        message: "Stok tidak boleh minus",
+      });
+    }
+
+    // Cari barang lama
+    const barang = await Barang.findByPk(oldBarcode, { transaction: t });
+    if (!barang) {
+      await t.rollback();
+      return res.status(404).json({
+        code: "E-404",
+        message: `Barang dengan barcode ${oldBarcode} tidak ditemukan`,
+      });
+    }
 
     const newStock = stok ?? barang.stok;
 
-    await barang.update(
-      {
-        nama_barang,
-        stok: newStock,
-        satuan,
-      },
-      {
-        where: {
-          barcode,
-        },
+    // Jika admin mengubah barcode
+    if (barcode && barcode !== oldBarcode) {
+      // Cek apakah barcode baru sudah ada
+      const barangCheck = await Barang.findByPk(barcode, { transaction: t });
+      if (barangCheck) {
+        await t.rollback();
+        return res.status(400).json({
+          code: "E-008",
+          message: `Barcode ${barcode} sudah digunakan di barang ${barangCheck.nama_barang}`,
+        });
       }
+
+      // Update semua transaksi yang menggunakan barcode lama ke barcode baru
+      await TransaksiPembelian.update(
+        { barcode_barang: barcode },
+        { where: { barcode_barang: oldBarcode }, transaction: t }
+      );
+
+      // Update semua request detail yang menggunakan barcode lama ke barcode baru
+      await Request_Detail.update(
+        { barcode_barang: barcode },
+        { where: { barcode_barang: oldBarcode }, transaction: t }
+      );
+    }
+
+    // Update data barang
+    await Barang.update(
+      { barcode: barcode, nama_barang, stok: newStock, satuan },
+      { where: { barcode: oldBarcode }, transaction: t }
     );
+
+    // Commit transaction
+    await t.commit();
+
+    // Ambil data terbaru dengan relasi
+    const updatedBarang = await Barang.findByPk(barcode, {
+      include: [{ model: TransaksiPembelian }],
+    });
+
     return res.status(200).json({
-      message: "Successfully update barang",
-      data: barang,
+      message: "Berhasil memperbarui barang",
+      data: updatedBarang,
     });
   } catch (error) {
-    return res.send([
-      {
-        code: "E-007",
-        message: error.message,
-      },
-    ]);
+    await t.rollback();
+    console.error(error);
+    return res.status(500).json({
+      code: "E-007",
+      message: error.message,
+    });
   }
 };
 
@@ -178,9 +370,67 @@ const handleGetAllBarang = async (req, res) => {
       data: barang,
     });
   } catch (error) {
-    return res.send([
+    return res.status(500).send([
       {
         code: "E-009",
+        message: error.message,
+      },
+    ]);
+  }
+};
+
+const handleGetBarangByBarcode = async (req, res) => {
+  try {
+    const { barcode } = req.params;
+    const barang = await Barang.findByPk(barcode, {
+      include: [
+        {
+          model: TransaksiPembelian,
+        },
+      ],
+    });
+    if (!barang) {
+      return res.status(404).send([
+        {
+          code: "E-010",
+          message: "Barang not found",
+        },
+      ]);
+    }
+    return res.status(200).json({
+      message: "Successfully get barang",
+      data: barang,
+    });
+  } catch (error) {
+    return res.status(500).send([
+      {
+        code: "E-011",
+        message: error.message,
+      },
+    ]);
+  }
+};
+
+const handleDeleteBarang = async (req, res) => {
+  try {
+    const { barcode } = req.params;
+    const barang = await Barang.findByPk(barcode);
+    if (!barang) {
+      return res.status(404).send([
+        {
+          code: "E-010",
+          message: "Barang not found",
+        },
+      ]);
+    }
+    await barang.destroy();
+    return res.status(200).json({
+      message: "Successfully delete barang",
+    });
+  } catch (error) {
+    return res.status(500).send([
+      {
+        code: "E-011",
         message: error.message,
       },
     ]);
@@ -201,7 +451,7 @@ const handleGetAllBarangForRequest = async (req, res) => {
       data: barang,
     });
   } catch (error) {
-    return res.send([
+    return res.status(500).send([
       {
         code: "E-009",
         message: error.message,
@@ -219,4 +469,7 @@ module.exports = {
   handleUpdateBarang,
   handleGetAllBarang,
   handleGetAllBarangForRequest,
+  handleGetBarangByBarcode,
+  handleDeleteBarang,
+  handleDeleteTransaksiById,
 };

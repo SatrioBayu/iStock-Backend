@@ -25,6 +25,33 @@ router.get(
   "/admin/barang/for-request",
   adminController.handleGetAllBarangForRequest
 );
+// Mengambil data transaksi untuk semua barang
+router.get(
+  "/admin/barang/transaksi",
+  authenticationController.authorize,
+  adminController.handleGetAllTransaksi
+);
+// Mengambil data barang berdasarkan barcode
+router.get("/admin/barang/:barcode", adminController.handleGetBarangByBarcode);
+// Menambah data barang
+router.post(
+  "/admin/barang",
+  authenticationController.authorize,
+  adminController.handleCreateBarang
+);
+// Mengupdate data barang
+router.patch(
+  "/admin/barang/:oldBarcode",
+  authenticationController.authorize,
+  adminController.handleUpdateBarang
+);
+router.delete(
+  "/admin/barang/:barcode",
+  authenticationController.authorize,
+  adminController.handleDeleteBarang
+);
+
+// Transaksi
 // Tambah Transaksi pada Barang + Update Stok Barang
 router.post(
   "/admin/barang/transaksi/add/:barcode",
@@ -37,23 +64,11 @@ router.get(
   authenticationController.authorize,
   adminController.handleGetAllTransaksiByBarcode
 );
-// Mengambil data transaksi untuk semua barang
-router.get(
-  "/admin/barang/transaksi",
+// Menghapus data transaksi pada barang berdasarkan ID transaksi
+router.delete(
+  "/admin/barang/transaksi/:id",
   authenticationController.authorize,
-  adminController.handleGetAllTransaksi
-);
-// Menambah data barang
-router.post(
-  "/admin/barang",
-  authenticationController.authorize,
-  adminController.handleCreateBarang
-);
-// Mengupdate data barang
-router.patch(
-  "/admin/barang/:barcode",
-  authenticationController.authorize,
-  adminController.handleUpdateBarang
+  adminController.handleDeleteTransaksiById
 );
 
 // Request

@@ -17,6 +17,10 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: false,
       },
+      nama_bagian: {
+        type: Sequelize.STRING,
+        allowNull: false,
+      },
       tanggal_request: {
         type: Sequelize.DATE,
         allowNull: false,

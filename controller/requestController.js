@@ -4,16 +4,18 @@ const fs = require("fs");
 const DocxTemplater = require("docxtemplater");
 const PizZip = require("pizzip");
 const dayjs = require("dayjs");
+const sendWhatsAppNotification = require("../utils/sendWhatsapp");
 
 const handleAddRequest = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { nama_pemohon, barang } = req.body;
+    const { nama_pemohon, nama_bagian, barang } = req.body;
 
     // Buat request utama
     const newRequest = await Request.create(
       {
         nama_pemohon,
+        nama_bagian,
         tanggal_request: new Date(),
         status_request: "Menunggu Persetujuan",
       },
@@ -69,6 +71,13 @@ const handleAddRequest = async (req, res) => {
     // Commit transaksi
     await t.commit();
 
+    // Opsional
+    // await sendWhatsAppNotification({
+    //   to: "6285943518120",
+    //   message: `Halo *Admin*, \n\nAda request baru dari ${newRequest.nama_pemohon} dengan kode request ${newRequest.kode_request}.\n\nSilakan cek aplikasi iStock untuk detailnya.
+    //   \nTerima kasih.`,
+    // });
+
     return res.status(201).send({
       message: "Request berhasil dibuat",
       data: {
@@ -92,11 +101,6 @@ const handleGetAllRequest = async (req, res) => {
       include: [
         {
           model: Request_Detail,
-          include: [
-            {
-              model: Barang,
-            },
-          ],
         },
       ],
       order: [["tanggal_request", "DESC"]],
@@ -332,6 +336,7 @@ const handleDownloadRequestByKode = async (req, res) => {
     doc.setData({
       kode_request: request.kode_request,
       nama_pemohon: request.nama_pemohon,
+      nama_bagian: request.nama_bagian,
       tanggal_request: dayjs(request.tanggal_request).format(
         "DD MMMM YYYY HH:mm:ss"
       ),
@@ -365,14 +370,12 @@ const handleDownloadRequestByKode = async (req, res) => {
     }
     const buf = doc.getZip().generate({ type: "nodebuffer" });
     const fileName = `Request_${request.kode_request}.docx`;
-    const filePath = path.resolve("/tmp", fileName);
-    fs.writeFileSync(filePath, buf);
-    return res.download(filePath, fileName, (err) => {
-      if (err) {
-        console.log("Error downloading file:", err);
-      }
-      // Optional: delete the file after download
-    });
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    return res.send(buf);
   } catch (error) {
     return res.status(500).send({
       code: "E-007",
