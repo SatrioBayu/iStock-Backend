@@ -3,6 +3,7 @@ const router = express.Router();
 const authenticationController = require("../controller/authenticationController");
 const adminController = require("../controller/adminController");
 const requestController = require("../controller/requestController");
+const upload = require("../middleware/uploadMiddleware");
 
 router.get("/", (req, res) => {
   res.send({
@@ -37,12 +38,14 @@ router.get("/admin/barang/:barcode", adminController.handleGetBarangByBarcode);
 router.post(
   "/admin/barang",
   authenticationController.authorize,
+  upload.single("foto"),
   adminController.handleCreateBarang
 );
 // Mengupdate data barang
 router.patch(
   "/admin/barang/:oldBarcode",
   authenticationController.authorize,
+  upload.single("foto"),
   adminController.handleUpdateBarang
 );
 router.delete(

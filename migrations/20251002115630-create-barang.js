@@ -20,6 +20,12 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: false,
       },
+      foto: {
+        type: Sequelize.STRING,
+      },
+      foto_public_id: {
+        type: Sequelize.STRING,
+      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,

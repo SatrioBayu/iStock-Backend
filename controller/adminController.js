@@ -8,6 +8,7 @@ const {
 } = require("../models");
 const ExcelJS = require("exceljs");
 const dayjs = require("dayjs");
+const cloudinary = require("../config/cloudinaryConfig");
 
 const handleGetUser = async (req, res) => {
   try {
@@ -168,6 +169,9 @@ const handleCreateBarang = async (req, res) => {
   try {
     const { barcode, nama_barang, stok, satuan } = req.body;
 
+    // console.log(req.body);
+    // console.log(req.file);
+
     // Cek barcode sudah ada atau belum
     const barangCheck = await Barang.findByPk(barcode);
     if (barangCheck) {
@@ -181,16 +185,26 @@ const handleCreateBarang = async (req, res) => {
       });
     }
 
-    const barang = await Barang.create({
+    let fotoUrl = null;
+    let imagePublicId = null;
+    // Jika ada file gambar, upload ke Cloudinary
+    if (req.file) {
+      const uploadResult = await uploadImageToCloudinary(req.file);
+      fotoUrl = uploadResult.url;
+      imagePublicId = uploadResult.publicId;
+    }
+
+    await Barang.create({
       barcode,
       nama_barang,
       stok,
       satuan,
+      foto: fotoUrl,
+      foto_public_id: imagePublicId,
     });
 
     return res.status(201).json({
       message: "Barang successfully created",
-      data: barang,
     });
   } catch (error) {
     return res.status(500).send({
@@ -334,9 +348,28 @@ const handleUpdateBarang = async (req, res) => {
       );
     }
 
+    let newImageUrl = barang.foto;
+    let imagePublicId = barang.foto_public_id;
+    if (req.file) {
+      const uploadResult = await uploadImageToCloudinary(req.file);
+      newImageUrl = uploadResult.url;
+      const newImagePublicId = uploadResult.publicId;
+
+      if (imagePublicId) await deleteImageFromCloudinary(imagePublicId);
+
+      imagePublicId = newImagePublicId;
+    }
+
     // Update data barang
     await Barang.update(
-      { barcode: barcode, nama_barang, stok: newStock, satuan },
+      {
+        barcode: barcode,
+        nama_barang,
+        stok: newStock,
+        satuan,
+        foto: newImageUrl,
+        foto_public_id: imagePublicId,
+      },
       { where: { barcode: oldBarcode }, transaction: t }
     );
 
@@ -457,6 +490,44 @@ const handleGetAllBarangForRequest = async (req, res) => {
         message: error.message,
       },
     ]);
+  }
+};
+
+const uploadImageToCloudinary = async (file) => {
+  try {
+    const fileBase64 = file.buffer.toString("base64");
+    const fileData = `data:${file.mimetype};base64,${fileBase64}`;
+    const result = await cloudinary.uploader.upload(fileData);
+
+    // const result = await cloudinary.uploader.upload(file.buffer, {
+    //   folder: "barang_images", // Menyimpan gambar dalam folder 'barang_images' di Cloudinary
+    //   resource_type: "image",
+    // });
+    return {
+      url: result.secure_url,
+      publicId: result.public_id,
+    }; // Mengembalikan URL gambar yang telah diupload
+  } catch (error) {
+    throw new Error("Upload gambar ke Cloudinary gagal");
+  }
+  // const fileBase64 = req.file.buffer.toString("base64");
+  // const file = `data:${req.file.mimetype};base64,${fileBase64}`;
+
+  // const data = cloudinary.uploader.upload(file, (err, result) => {
+  //   if (err) {
+  //     return false;
+  //   }
+  //   return result.url;
+  // });
+  // return data;
+};
+
+const deleteImageFromCloudinary = async (publicId) => {
+  if (!publicId) return;
+  try {
+    await cloudinary.uploader.destroy(publicId);
+  } catch (error) {
+    console.warn("Gagal menghapus gambar lama dari Cloudinary:", error.message);
   }
 };
 
