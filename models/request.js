@@ -25,6 +25,8 @@ module.exports = (sequelize, DataTypes) => {
       tanggal_ditolak: DataTypes.DATE,
       tanggal_selesai: DataTypes.DATE,
       status_request: DataTypes.STRING,
+      catatan_pemohon: DataTypes.STRING,
+      catatan_penyetuju: DataTypes.STRING,
     },
     {
       sequelize,

@@ -9,7 +9,15 @@ const sendWhatsAppNotification = require("../utils/sendWhatsapp");
 const handleAddRequest = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { nama_pemohon, nama_bagian, barang } = req.body;
+    const { nama_pemohon, nama_bagian, barang, catatan_pemohon } = req.body;
+
+    if (nama_pemohon === "" || nama_bagian === "" || barang.length === 0) {
+      await t.rollback();
+      return res.status(400).send({
+        code: "E-400",
+        message: "Field tidak boleh kosong",
+      });
+    }
 
     // Buat request utama
     const newRequest = await Request.create(
@@ -18,6 +26,7 @@ const handleAddRequest = async (req, res) => {
         nama_bagian,
         tanggal_request: new Date(),
         status_request: "Menunggu Persetujuan",
+        catatan_pemohon,
       },
       { transaction: t }
     );
@@ -247,7 +256,7 @@ const handleFinish = async (req, res) => {
       return res.status(404).json({ message: "Request tidak ditemukan" });
     }
 
-    if (request.status_request !== "Disetujui") {
+    if (request.status_request !== "Dalam Proses") {
       return res
         .status(400)
         .json({ message: "Request hanya bisa diselesaikan setelah disetujui" });
@@ -284,6 +293,103 @@ const handleFinish = async (req, res) => {
   } catch (error) {
     await t.rollback();
     return res.status(500).json({ message: error.message });
+  }
+};
+
+const handleApprovalUpdate = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { kode_request } = req.params;
+    const {
+      approvedItems = [],
+      rejectedItems = [],
+      catatan_penyetuju,
+    } = req.body;
+
+    // 🔹 1. Ambil request utama dan detailnya
+    const request = await Request.findOne({
+      where: { kode_request },
+      include: [
+        {
+          model: Request_Detail,
+          include: [{ model: Barang }],
+        },
+      ],
+      transaction: t,
+    });
+
+    if (!request) {
+      await t.rollback();
+      return res.status(404).json({
+        code: "E-006",
+        message: "Request tidak ditemukan",
+      });
+    }
+
+    // 🔹 2. Update status detail yang disetujui
+    if (approvedItems.length > 0) {
+      await Request_Detail.update(
+        { status: "Disetujui" },
+        { where: { id: approvedItems }, transaction: t }
+      );
+    }
+
+    // 🔹 3. Update status detail yang ditolak
+    if (rejectedItems.length > 0) {
+      // Ambil data detail yang ditolak untuk mengembalikan stok
+      const rejectedDetails = await Request_Detail.findAll({
+        where: { id: rejectedItems },
+        include: [{ model: Barang }],
+        transaction: t,
+      });
+
+      // Kembalikan stok barang
+      for (const detail of rejectedDetails) {
+        const barang = detail.Barang;
+        if (barang) {
+          await barang.update(
+            { stok: barang.stok + detail.jumlah },
+            { transaction: t }
+          );
+        }
+      }
+
+      await Request_Detail.update(
+        { status: "Ditolak" },
+        { where: { id: rejectedItems }, transaction: t }
+      );
+    }
+
+    // 🔹 4. Update status global request
+    //    - Jika awalnya "Menunggu Persetujuan" → jadi "Dalam Proses"
+    if (request.status_request === "Menunggu Persetujuan") {
+      await request.update(
+        {
+          status_request: "Dalam Proses",
+          tanggal_disetujui: new Date(),
+          catatan_penyetuju,
+        },
+        { transaction: t }
+      );
+    }
+
+    await t.commit();
+
+    return res.status(200).json({
+      message: "Status request berhasil diperbarui",
+      data: {
+        kode_request,
+        status_request: "Dalam Proses",
+        approvedItems,
+        rejectedItems,
+      },
+    });
+  } catch (error) {
+    await t.rollback();
+    return res.status(500).json({
+      code: "E-007",
+      message: error.message,
+    });
   }
 };
 
@@ -327,11 +433,13 @@ const handleDownloadRequestByKode = async (req, res) => {
     });
     // Prepare data for the template
     // Buatkan index agar di form docx nya ada nomor urut
-    const barangList = request.Request_Details.map((detail) => ({
-      index: request.Request_Details.indexOf(detail) + 1,
+    const barangList = request.Request_Details.map((detail, index) => ({
+      index: index + 1,
       nama_barang: detail.Barang.nama_barang,
       jumlah: detail.jumlah,
+      status_persetujuan: detail.status,
     }));
+
     // Set the template variables
     doc.setData({
       kode_request: request.kode_request,
@@ -392,4 +500,5 @@ module.exports = {
   handleReject,
   handleFinish,
   handleDownloadRequestByKode,
+  handleApprovalUpdate,
 };

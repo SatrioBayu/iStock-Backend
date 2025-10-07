@@ -88,10 +88,10 @@ router.get(
 );
 // Approved Request
 router.patch(
-  "/request/:kode_request/approve",
+  "/request/:kode_request/approval",
   authenticationController.authorize,
   authenticationController.checkRole(["Kasubbag TURT"]),
-  requestController.handleApproved
+  requestController.handleApprovalUpdate
 );
 // Reject Request
 router.patch(

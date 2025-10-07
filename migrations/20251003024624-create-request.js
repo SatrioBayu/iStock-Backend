@@ -38,6 +38,12 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: false,
       },
+      catatan_pemohon: {
+        type: Sequelize.STRING,
+      },
+      catatan_penyetuju: {
+        type: Sequelize.STRING,
+      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,

@@ -24,6 +24,7 @@ module.exports = (sequelize, DataTypes) => {
       id_request: DataTypes.INTEGER,
       barcode_barang: DataTypes.STRING,
       jumlah: DataTypes.INTEGER,
+      status: DataTypes.STRING,
     },
     {
       sequelize,
