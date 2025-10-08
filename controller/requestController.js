@@ -298,6 +298,103 @@ const handleFinish = async (req, res) => {
   }
 };
 
+// const handleApprovalUpdate = async (req, res) => {
+//   const t = await sequelize.transaction();
+//   try {
+//     const { kode_request } = req.params;
+//     const {
+//       approvedItems = [],
+//       rejectedItems = [],
+//       catatan_penyetuju,
+//     } = req.body;
+
+//     // 🔹 1. Ambil request utama dan detailnya
+//     const request = await Request.findOne({
+//       where: { kode_request },
+//       include: [
+//         {
+//           model: Request_Detail,
+//           include: [{ model: Barang }],
+//         },
+//       ],
+//       transaction: t,
+//     });
+
+//     if (!request) {
+//       await t.rollback();
+//       return res.status(404).json({
+//         code: "E-006",
+//         message: "Request tidak ditemukan",
+//       });
+//     }
+
+//     // 🔹 2. Update status detail yang disetujui
+//     if (approvedItems.length > 0) {
+//       await Request_Detail.update(
+//         { status: "Disetujui" },
+//         { where: { id: approvedItems }, transaction: t }
+//       );
+//     }
+
+//     // 🔹 3. Update status detail yang ditolak
+//     if (rejectedItems.length > 0) {
+//       // Ambil data detail yang ditolak untuk mengembalikan stok
+//       const rejectedDetails = await Request_Detail.findAll({
+//         where: { id: rejectedItems },
+//         include: [{ model: Barang }],
+//         transaction: t,
+//       });
+
+//       // Kembalikan stok barang
+//       for (const detail of rejectedDetails) {
+//         const barang = detail.Barang;
+//         if (barang) {
+//           await barang.update(
+//             { stok: barang.stok + detail.jumlah },
+//             { transaction: t }
+//           );
+//         }
+//       }
+
+//       await Request_Detail.update(
+//         { status: "Ditolak" },
+//         { where: { id: rejectedItems }, transaction: t }
+//       );
+//     }
+
+//     // 🔹 4. Update status global request
+//     //    - Jika awalnya "Menunggu Persetujuan" → jadi "Dalam Proses"
+//     if (request.status_request === "Menunggu Persetujuan") {
+//       await request.update(
+//         {
+//           status_request: "Dalam Proses",
+//           tanggal_disetujui: new Date(),
+//           catatan_penyetuju,
+//         },
+//         { transaction: t }
+//       );
+//     }
+
+//     await t.commit();
+
+//     return res.status(200).json({
+//       message: "Status request berhasil diperbarui",
+//       data: {
+//         kode_request,
+//         status_request: "Dalam Proses",
+//         approvedItems,
+//         rejectedItems,
+//       },
+//     });
+//   } catch (error) {
+//     await t.rollback();
+//     return res.status(500).json({
+//       code: "E-007",
+//       message: error.message,
+//     });
+//   }
+// };
+
 const handleApprovalUpdate = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -308,15 +405,10 @@ const handleApprovalUpdate = async (req, res) => {
       catatan_penyetuju,
     } = req.body;
 
-    // 🔹 1. Ambil request utama dan detailnya
+    // 1️⃣ Ambil request utama dan detailnya
     const request = await Request.findOne({
       where: { kode_request },
-      include: [
-        {
-          model: Request_Detail,
-          include: [{ model: Barang }],
-        },
-      ],
+      include: [{ model: Request_Detail, include: [{ model: Barang }] }],
       transaction: t,
     });
 
@@ -328,24 +420,42 @@ const handleApprovalUpdate = async (req, res) => {
       });
     }
 
-    // 🔹 2. Update status detail yang disetujui
-    if (approvedItems.length > 0) {
-      await Request_Detail.update(
-        { status: "Disetujui" },
-        { where: { id: approvedItems }, transaction: t }
+    // 2️⃣ Update status detail yang disetujui (bisa sebagian)
+    for (const item of approvedItems) {
+      const detail = request.Request_Details.find((d) => d.id === item.id);
+      if (!detail) continue;
+
+      let status = "Disetujui";
+      if (item.jumlahDisetujui < detail.jumlah && item.jumlahDisetujui > 0) {
+        status = "Disetujui Sebagian"; // optional label, bisa simpan "Disetujui" saja
+      }
+
+      await detail.update(
+        {
+          status,
+          jumlah_disetujui: item.jumlahDisetujui, // pastikan kolom ini ada di DB
+        },
+        { transaction: t }
       );
+
+      // Kurangi stok barang sesuai jumlahDisetujui
+      const barang = detail.Barang;
+      if (barang && item.jumlahDisetujui > 0) {
+        await barang.update(
+          { stok: barang.stok - item.jumlahDisetujui },
+          { transaction: t }
+        );
+      }
     }
 
-    // 🔹 3. Update status detail yang ditolak
+    // 3️⃣ Update status detail yang ditolak
     if (rejectedItems.length > 0) {
-      // Ambil data detail yang ditolak untuk mengembalikan stok
       const rejectedDetails = await Request_Detail.findAll({
         where: { id: rejectedItems },
         include: [{ model: Barang }],
         transaction: t,
       });
 
-      // Kembalikan stok barang
       for (const detail of rejectedDetails) {
         const barang = detail.Barang;
         if (barang) {
@@ -354,16 +464,14 @@ const handleApprovalUpdate = async (req, res) => {
             { transaction: t }
           );
         }
+        await detail.update(
+          { status: "Ditolak", jumlah_disetujui: 0 },
+          { transaction: t }
+        );
       }
-
-      await Request_Detail.update(
-        { status: "Ditolak" },
-        { where: { id: rejectedItems }, transaction: t }
-      );
     }
 
-    // 🔹 4. Update status global request
-    //    - Jika awalnya "Menunggu Persetujuan" → jadi "Dalam Proses"
+    // 4️⃣ Update status global request
     if (request.status_request === "Menunggu Persetujuan") {
       await request.update(
         {
@@ -439,6 +547,7 @@ const handleDownloadRequestByKode = async (req, res) => {
       index: index + 1,
       nama_barang: detail.Barang.nama_barang,
       jumlah: detail.jumlah,
+      jumlah_disetujui: detail.jumlah_disetujui,
       status_persetujuan: detail.status,
     }));
 

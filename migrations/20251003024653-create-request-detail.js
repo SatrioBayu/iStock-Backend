@@ -27,6 +27,9 @@ module.exports = {
         type: Sequelize.INTEGER,
         allowNull: false,
       },
+      jumlah_disetujui: {
+        type: Sequelize.INTEGER,
+      },
       status: {
         type: Sequelize.STRING,
       },
