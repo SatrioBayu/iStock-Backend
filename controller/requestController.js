@@ -5,6 +5,8 @@ const DocxTemplater = require("docxtemplater");
 const PizZip = require("pizzip");
 const dayjs = require("dayjs");
 const sendWhatsAppNotification = require("../utils/sendWhatsapp");
+const ExcelJS = require("exceljs");
+const AdmZip = require("adm-zip");
 
 const handleAddRequest = async (req, res) => {
   const t = await sequelize.transaction();
@@ -492,6 +494,142 @@ const handleDownloadRequestByKode = async (req, res) => {
   }
 };
 
+const handleDownloadRequestDetail = async (req, res) => {
+  try {
+    const barangKeluar = await Request_Detail.findAll({
+      where: {
+        status: "Disetujui",
+      },
+      include: [
+        { model: Barang, attributes: ["nama_barang"] },
+        {
+          model: Request,
+          attributes: ["nama_bagian", "nama_pemohon", "tanggal_selesai"],
+        },
+      ],
+    });
+
+    // Buat workbook dan worksheet
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("BARANG KELUAR");
+
+    // Definisikan kolom
+    worksheet.columns = [
+      { header: "Tanggal dan Jam", key: "tanggal_selesai", width: 20 },
+      { header: "Barcode", key: "barcode", width: 20 },
+      { header: "Nama Barang", key: "nama_barang", width: 20 },
+      { header: "Jumlah Keluar", key: "jumlah_keluar", width: 20 },
+      { header: "Nama Bagian", key: "nama_bagian", width: 20 },
+      { header: "Keterangan", key: "keterangan", width: 20 },
+    ];
+
+    barangKeluar.forEach((item) => {
+      worksheet.addRow({
+        tanggal_selesai: dayjs(item.Request.tanggal_selesai).format(
+          "DD/MM/YYYY HH:mm:ss"
+        ),
+        barcode: item.barcode_barang,
+        nama_barang: item.Barang.nama_barang,
+        jumlah_keluar: item.jumlah,
+        nama_bagian: item.Request.nama_bagian,
+        keterangan: item.Request.nama_pemohon,
+      });
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=data-barang.xlsx"
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+    // return res.status(200).json({
+    //   message: "Barang Masuk successfully fetched",
+    //   data: barangKeluar,
+    // });
+  } catch (error) {
+    return res.status(500).send([
+      {
+        code: "E-007",
+        message: error.message,
+      },
+    ]);
+  }
+};
+
+const handleDownloadAllRequestsAsZip = async (req, res) => {
+  try {
+    const requests = await Request.findAll({
+      where: { status_request: "Selesai" },
+      include: [{ model: Request_Detail, include: [Barang] }],
+      order: [["tanggal_request", "DESC"]],
+    });
+
+    if (!requests || requests.length === 0) {
+      return res
+        .status(404)
+        .send([{ code: "E-006", message: "Tidak ada request ditemukan" }]);
+    }
+
+    const zip = new AdmZip();
+
+    for (const request of requests) {
+      const content = fs.readFileSync(
+        path.resolve(__dirname, "../src/template/FORM.docx"),
+        "binary"
+      );
+      const docZip = new PizZip(content);
+      const doc = new DocxTemplater(docZip, {
+        paragraphLoop: true,
+        linebreaks: true,
+      });
+
+      const barangList = request.Request_Details.map((detail, index) => ({
+        index: index + 1,
+        nama_barang: detail.Barang.nama_barang,
+        jumlah: detail.jumlah,
+        status_persetujuan: detail.status,
+      }));
+
+      doc.setData({
+        kode_request: request.kode_request,
+        nama_pemohon: request.nama_pemohon,
+        nama_bagian: request.nama_bagian,
+        tanggal_request: dayjs(request.tanggal_request).format(
+          "DD MMMM YYYY HH:mm:ss"
+        ),
+        tanggal_disetujui: dayjs(request.tanggal_disetujui).format(
+          "DD MMMM YYYY HH:mm:ss"
+        ),
+        tanggal_selesai: dayjs(request.tanggal_selesai).format(
+          "DD MMMM YYYY HH:mm:ss"
+        ),
+        periode: dayjs(request.tanggal_request).format("MMMM YYYY"),
+        status_request: request.status_request,
+        barang_list: barangList,
+      });
+
+      doc.render();
+      const buf = doc.getZip().generate({ type: "nodebuffer" });
+      zip.addFile(`Request_${request.kode_request}.docx`, buf);
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="All_Requests.zip"`
+    );
+    return res.send(zipBuffer);
+  } catch (error) {
+    return res.status(500).send({ code: "E-007", message: error.message });
+  }
+};
+
 module.exports = {
   handleAddRequest,
   handleGetAllRequest,
@@ -501,4 +639,6 @@ module.exports = {
   handleFinish,
   handleDownloadRequestByKode,
   handleApprovalUpdate,
+  handleDownloadRequestDetail,
+  handleDownloadAllRequestsAsZip,
 };

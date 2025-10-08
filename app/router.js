@@ -79,6 +79,11 @@ router.delete(
 router.post("/request", requestController.handleAddRequest);
 // Get All Request
 router.get("/request", requestController.handleGetAllRequest);
+// Download Request yang sudah Selesai
+router.get(
+  "/request/download",
+  requestController.handleDownloadAllRequestsAsZip
+);
 // Get Request by Kode
 router.get("/request/:kode_request", requestController.handleGetRequestByKode);
 // Download Request by Kode
@@ -106,6 +111,11 @@ router.patch(
   authenticationController.authorize,
   authenticationController.checkRole(["Pengelola BMN"]),
   requestController.handleFinish
+);
+router.get(
+  "/request-detail/download",
+  authenticationController.authorize,
+  requestController.handleDownloadRequestDetail
 );
 
 module.exports = router;
