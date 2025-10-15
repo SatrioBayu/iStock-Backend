@@ -441,10 +441,8 @@ const handleApprovalUpdate = async (req, res) => {
       // Kurangi stok barang sesuai jumlahDisetujui
       const barang = detail.Barang;
       if (barang && item.jumlahDisetujui > 0) {
-        await barang.update(
-          { stok: barang.stok - item.jumlahDisetujui },
-          { transaction: t }
-        );
+        const stokAkhir = detail.jumlah + barang.stok - item.jumlahDisetujui;
+        await barang.update({ stok: stokAkhir }, { transaction: t });
       }
     }
 

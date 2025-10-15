@@ -383,7 +383,6 @@ const handleUpdateBarang = async (req, res) => {
 
     return res.status(200).json({
       message: "Berhasil memperbarui barang",
-      data: updatedBarang,
     });
   } catch (error) {
     await t.rollback();
@@ -397,7 +396,7 @@ const handleUpdateBarang = async (req, res) => {
 
 const handleGetAllBarang = async (req, res) => {
   try {
-    const barang = await Barang.findAll();
+    const barang = await Barang.findAll({ order: [["stok", "DESC"]] });
     return res.status(200).json({
       message: "Successfully get all barang",
       data: barang,
