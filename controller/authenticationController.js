@@ -1,5 +1,6 @@
 const { Admin } = require("../models");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 
 const authorize = async (req, res, next) => {
   try {
@@ -77,7 +78,7 @@ const handleLogin = async (req, res) => {
         ],
       });
     }
-    const isPasswordValid = password === user.password ? true : false;
+    const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({
         errors: [
