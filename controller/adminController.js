@@ -4,6 +4,7 @@ const {
   Barang,
   TransaksiPembelian,
   Request_Detail,
+  Request,
   sequelize,
 } = require("../models");
 const ExcelJS = require("exceljs");
@@ -422,6 +423,11 @@ const handleGetBarangByBarcode = async (req, res) => {
         },
         {
           model: Request_Detail,
+          include: [
+            {
+              model: Request,
+            },
+          ],
         },
       ],
     });
