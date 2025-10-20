@@ -383,6 +383,7 @@ const handleUpdateBarang = async (req, res) => {
 
     return res.status(200).json({
       message: "Berhasil memperbarui barang",
+      data: updatedBarang,
     });
   } catch (error) {
     await t.rollback();
