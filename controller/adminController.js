@@ -420,6 +420,9 @@ const handleGetBarangByBarcode = async (req, res) => {
         {
           model: TransaksiPembelian,
         },
+        {
+          model: Request_Detail,
+        },
       ],
     });
     if (!barang) {
